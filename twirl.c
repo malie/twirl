@@ -320,7 +320,15 @@ assume_others_white(PicoSAT *p, int*fields)
   for (int g = 0; g < S2; g++) {
     if (fields[g] == 0)
       picosat_assume(p, white(g));}}
-  
+
+
+int
+find_digit(PicoSAT *p, int f) {
+  for (int d = 0; d < S; d++) {
+    if (picosat_deref(p, num(f, d)) == 1) {
+      return d;}}
+  return -1;}
+
 
 int
 has_second_solution(PicoSAT *p, int *fields) {
@@ -337,11 +345,7 @@ has_second_solution(PicoSAT *p, int *fields) {
       if (fields[f] == 0
 	  && picosat_deref(p, white(f)) == 1)
 	{
-	  int digit = -1;
-	  for (int d = 0; d < S; d++) {
-	    if (picosat_deref(p, num(f, d)) == 1) {
-	      digit = d;
-	      break;}}
+	  int digit = find_digit(p, f);
 	  assert(digit != -1);
 	  digits[f] = digit;
 	  nsolution[fillptr++] = -num(f, digit);
@@ -364,14 +368,10 @@ has_second_solution(PicoSAT *p, int *fields) {
       {
 	int od = digits[f];
 	if (od != -1 && picosat_deref(p, num(f, od)) != 1) {
-	  int digit = -1;
-	  for (int d = 0; d < S; d++) {
-	    if (picosat_deref(p, num(f, d)) == 1) {
-	      digit = d;
-	      break;}}
+	  int digit = find_digit(p, f);
 
-	printf("  diff %i,%i   %i -> %i\n",
-	       field_col(f), field_row(f), 1+od, 1+digit);}}
+	  printf("  diff %i,%i   %i -> %i\n",
+		 field_col(f), field_row(f), 1+od, 1+digit);}}
     
     res = 1;}
   else {
@@ -380,6 +380,60 @@ has_second_solution(PicoSAT *p, int *fields) {
   }
   picosat_pop(p);
   return res;}
+
+PicoSAT*
+fill_new_instance(int *fields, int *digit)
+{
+  PicoSAT *p = picosat_init();
+  encodeToCNF(p);
+  for (int f = 0; f < S2; f++) {
+    if (fields[f] == 1) {
+      picosat_add_arg(p, white(f), 0);
+      picosat_add_arg(p, num(f, digit[f]), 0);
+    } else if (fields[f] == 2) {
+      picosat_add_arg(p, nblack(f), 0);
+      picosat_add_arg(p, num(f, digit[f]), 0);
+    } else if (fields[f] == 3) {
+      picosat_add_arg(p, black(f), 0);
+    }
+  }
+  return p;
+}
+
+// This function is called when it's sure that no second solution
+// exists. One can imply that no single digit can be assigned
+// another value. Yet, some constellations are generated that
+// are ambiguous in (very few) digits. Let's check.
+int
+check_every_single_digit(PicoSAT *pouter, int *fields, int *digit)
+{
+  int good = 1;
+  PicoSAT *p = fill_new_instance(fields, digit);
+
+  for (int f = 0; f < S2; f++) {
+    if (fields[f] == 0
+	&& picosat_deref(pouter, white(f)) == 1)
+      {
+	// a white field assigned by the solver, not by the problem.
+	int digit = find_digit(pouter, f);
+	
+	assume_others_white(p, fields);
+	picosat_assume(p, -num(f, digit));
+	if (picosat_sat(p, -1) == PICOSAT_SATISFIABLE) {
+	  int d = find_digit(p, f);
+	  printf("### found a solution when %i,%i is not %i but %i\n",
+		 field_col(f), field_row(f), 1+digit, 1+d);
+	  good = 0;
+	} else {
+	  printf("good, %i,%i must be %i\n",
+		 field_col(f), field_row(f), 1+digit);
+	}
+      }
+  }
+
+  picosat_reset(p);
+  return good;
+}
 
 void
 showLinkToGame(PicoSAT *p, int *fields, int *digit) {
@@ -394,7 +448,7 @@ showLinkToGame(PicoSAT *p, int *fields, int *digit) {
   long cr = 1492UL;
 #define next() ({cr = (cr*3UL+7UL)%13913131UL; cr%64; })
   
-  char encodedGame[S2];
+  char encodedGame[S2+1];
   int fillptr = 0;
   
   for (int f = 0; f < S2; f++) {
@@ -414,11 +468,17 @@ showLinkToGame(PicoSAT *p, int *fields, int *digit) {
       val += 4*dig;
 
     int x = val ^ next();
-    
+
+    if (x < 0 || x > 63) {
+      printf("bad code; val:%i, x:%i\n", val, x);
+      assert(0);
+    }
     encodedGame[fillptr++] = url64codes[x];}
 
+  
+  encodedGame[fillptr++] = 0;
   printf("\n\nURL to play this game:\n"
-	 "http://malie.github.io/undiluted/play/str8ts.html?p=%c%s",
+	 "http://malie.github.io/undiluted/play/str8ts.html?p=%c%s\n\n",
 	 url64codes[S],
 	 encodedGame);
 }
@@ -546,20 +606,7 @@ main()
 	printf("\n\nresetting picosat after 100 failures\n");
 	num_failures = 0;
 	picosat_reset(p);
-	p = picosat_init();
-	encodeToCNF(p);
-	for (int f = 0; f < S2; f++) {
-	  if (fields[f] == 1) {
-	    picosat_add_arg(p, white(f), 0);
-	    picosat_add_arg(p, num(f, digit[f]), 0);
-	  } else if (fields[f] == 2) {
-	    picosat_add_arg(p, nblack(f), 0);
-	    picosat_add_arg(p, num(f, digit[f]), 0);
-	  } else if (fields[f] == 3) {
-	    picosat_add_arg(p, black(f), 0);
-	  }
-	}
-	
+	p = fill_new_instance(fields, digit);	
       }
     }
 
@@ -571,8 +618,16 @@ main()
   
   picosat_stats(p);
   printf("\nfound a game!\n");
+
   int res = picosat_sat(p, -1);
   assert(res == PICOSAT_SATISFIABLE);
+
+  if (!check_every_single_digit(p, fields, digit)) {
+    printf("A game was found but it has multiple solutions...\n"
+	   "please run again.\n");
+    return 1;
+  }
+
   showLinkToGame(p, fields, digit);
   return 0;
 }
