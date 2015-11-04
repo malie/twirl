@@ -7,3 +7,9 @@ twirl: twirl.o picosat-960/picosat.o
 twirl.o: twirl.c
 
 picosat-960/picosat.o: picosat-960/picosat.c
+
+
+generate:
+	for i in `seq 200`; do \
+	  timeout 60s ./twirl | tee log-`date +%s` | grep http; \
+	done

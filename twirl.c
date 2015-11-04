@@ -181,12 +181,13 @@ encodeToCNF(PicoSAT*p) {
     implies(black(f), xblack(f));
 
     
-    // implies(white(f), -xblack(f));
+    implies(white(f), -xblack(f));
+    
     implies(black(f), -numfield(f));
     implies(xblack(f), -white(f));
-    // implies(numfield(f), -black(f));
-    // implies_or(numfield(f), white(f), nblack(f));
-    // implies_or(xblack(f), black(f), nblack(f));
+    implies(numfield(f), -black(f));
+    implies_or(numfield(f), white(f), nblack(f));
+    implies_or(xblack(f), black(f), nblack(f));
 
 
     for (d = 0; d < S; d++) {
@@ -207,7 +208,7 @@ encodeToCNF(PicoSAT*p) {
 	if (d != e) {
 	  // picosat_add_arg(p,
 	  //    -numfield(f), -num(f, d), -num(f, e), 0);
-	  picosat_add_arg(p, -num(f, d), -num(f, e), 0);
+	  implies(num(f, d), -num(f, e));
 	}
       }
     }
@@ -216,8 +217,25 @@ encodeToCNF(PicoSAT*p) {
     for (d = 0; d < S; d++)
       picosat_add(p, num(f, d));
     picosat_add(p, 0); numcl++;
+
+    // no single white fields
+    int c = field_col(f);
+    int r = field_row(f);
+    picosat_add(p, -white(f));
+    if (c >= 1)
+      picosat_add(p, -xblack(field(c-1, r)));
+    if (c < S-1)
+      picosat_add(p, -xblack(field(c+1, r)));
+    if (r >= 1)
+      picosat_add(p, -xblack(field(c, r-1)));
+    if (r < S-1)
+      picosat_add(p, -xblack(field(c, r+1)));
+    picosat_add(p, 0); numcl++;
+    
   }
 
+  
+  
   // Encoding the straights:
   // A constellation like B W W W B is a straight of len 3,
   // when there are no blacks in between.
@@ -306,12 +324,18 @@ init_seed() {
   seed += t.tv_usec;}
 
 int randint(int n) {
-  seed += (seed>>1) + (seed>>7) + (seed>>39) + (seed<<9);
+  seed += (seed>>1) + (seed>>5) + (seed>>17) + (seed>>39) + (seed<<3);
   return seed%n;}
 
-int mir(int f) {
-  return field(S-1-field_col(f),
-	       S-1-field_row(f));}
+int mirror(int kind, int f) {
+  if (kind == 1)
+    return field(S-1-field_col(f),
+		 S-1-field_row(f));
+  else if (kind == 2)
+    return field(S-1-field_col(f),
+		 field_row(f));
+  else abort();}
+    
 
 
 void
@@ -324,10 +348,12 @@ assume_others_white(PicoSAT *p, int*fields)
 
 int
 find_digit(PicoSAT *p, int f) {
+  int digit = -1;
   for (int d = 0; d < S; d++) {
     if (picosat_deref(p, num(f, d)) == 1) {
-      return d;}}
-  return -1;}
+      digit = d;}}
+  assert(digit != -1);
+  return digit;}
 
 
 int
@@ -354,7 +380,6 @@ has_second_solution(PicoSAT *p, int *fields) {
   nsolution[fillptr++] = 0;
 
   picosat_push(p);
-  printf("picosat context: %i\n", picosat_context(p));
   picosat_add_lits(p, nsolution);
 
   printf("added a clause with %i literals for next solution...\n",
@@ -364,14 +389,15 @@ has_second_solution(PicoSAT *p, int *fields) {
   int res;
   if (picosat_sat(p, -1) == PICOSAT_SATISFIABLE) {
     printf("has second solution\n");
-    for (int f = 0; f < S2; f++)
-      {
-	int od = digits[f];
-	if (od != -1 && picosat_deref(p, num(f, od)) != 1) {
-	  int digit = find_digit(p, f);
-
-	  printf("  diff %i,%i   %i -> %i\n",
-		 field_col(f), field_row(f), 1+od, 1+digit);}}
+    if (0)
+      for (int f = 0; f < S2; f++)
+	{
+	  int od = digits[f];
+	  if (od != -1 && picosat_deref(p, num(f, od)) != 1) {
+	    int digit = find_digit(p, f);
+	    
+	    printf("  diff %i,%i   %i -> %i\n",
+		   field_col(f), field_row(f), 1+od, 1+digit);}}
     
     res = 1;}
   else {
@@ -450,22 +476,25 @@ showLinkToGame(PicoSAT *p, int *fields, int *digit) {
   
   char encodedGame[S2+1];
   int fillptr = 0;
+  int nb = 0, ng = 0;
   
   for (int f = 0; f < S2; f++) {
     int val = 0;
-    if (picosat_deref(p, xblack(f)) == 1)
-      val += 1;
-      
-    if (fields[f] == 1 || fields[f] == 2)
-      val += 2;
 
-    int dig = -1;
-    for (int d = 0; d < S; d++) {
-      if (picosat_deref(p, num(f, d)) == 1) {
-	dig = d;}}
+    // xblack
+    if (fields[f] == 2 || fields[f] == 3) {
+      val += 1;
+      nb++;}
+
+    // digit shown
+    int nf = fields[f] == 1 || fields[f] == 2;
+    if (nf) {
+      val += 2;
+      ng++;}
     
-    if (picosat_deref(p, numfield(f)) == 1)
-      val += 4*dig;
+    if (picosat_deref(p, white(f)) == 1
+	|| picosat_deref(p, nblack(f)) == 1)
+      val += 4*find_digit(p, f);
 
     int x = val ^ next();
 
@@ -478,9 +507,12 @@ showLinkToGame(PicoSAT *p, int *fields, int *digit) {
   
   encodedGame[fillptr++] = 0;
   printf("\n\nURL to play this game:\n"
-	 "http://malie.github.io/undiluted/play/str8ts.html?p=%c%s\n\n",
+	 "http://malie.github.io/undiluted/play/str8ts.html"
+	 "?p=%c%s&nb=%i&ng=%i\n\n",
 	 url64codes[S],
-	 encodedGame);
+	 encodedGame,
+	 nb,
+	 ng);
 }
 
 
@@ -489,7 +521,6 @@ main()
 {
   PicoSAT *p = picosat_init();
   encodeToCNF(p);
-  int num_failures = 0;
 
   init_seed();
 
@@ -499,8 +530,12 @@ main()
     fields[i] = 0;
     digit[i] = -1;}
 
-  int num_black = S + S/5;
-  num_black += num_black;
+  int num_black = S + randint(S/2) + 2;
+
+  int mir = 1;
+
+  if (!mir)
+    num_black *= 2;
 
   for (int i = 0; i < 3000; i++)
     {
@@ -513,8 +548,6 @@ main()
 	printf("white %i at %i,%i\n", d+1, field_col(f), field_row(f));
 
 	picosat_push(p);
-	printf("picosat context: %i\n", picosat_context(p));
-
 	picosat_add_arg(p, white(f), 0);
 	picosat_add_arg(p, num(f, d), 0);
 	fields[f] = 1;
@@ -529,27 +562,29 @@ main()
 	  if (!has_second_solution(p, fields)) {
 	    goto success;}
 
-	  picosat_pop(p);
-	  picosat_add_arg(p, white(f), 0);
-	  picosat_add_arg(p, num(f, d), 0);
 	} else {
 	  fields[f] = 0;
 	  digit[f] = -1;
 	  picosat_pop(p);
-	  printf("  => bad\n");
-	  num_failures++;}}
+	  printf("  => bad\n");}}
       else if (w == 1) {
 	int f = randint(S2);
 	int d = randint(S);
-	if (fields[f] != 0) continue;
+	int mf = mirror(mir, f);
+	if (fields[f] != 0
+	    || (mir && fields[mf] != 0))
+	  continue;
 	printf("black with digit %i at %i,%i\n",
 	       d+1, field_col(f), field_row(f));
 
 	picosat_push(p);
-	printf("picosat context: %i\n", picosat_context(p));
 	picosat_add_arg(p, nblack(f), 0);
 	picosat_add_arg(p, num(f, d), 0);
+	if (mir)
+	  picosat_add_arg(p, black(mf), 0);
+
 	fields[f] = 2;
+	if (mir) fields[mf] = 3;
 	digit[f] = d;
 	assume_others_white(p, fields);
 	
@@ -560,29 +595,29 @@ main()
 	  printResults(p, fields);
 	  if (!has_second_solution(p, fields)) {
 	    goto success;}
-
-	  picosat_pop(p);
-	  picosat_add_arg(p, nblack(f), 0);
-	  picosat_add_arg(p, num(f, d), 0);
 	  
 	} else {
 	  fields[f] = 0;
+	  if (mir) fields[mf] = 0;
 	  digit[f] = -1;
 	  picosat_pop(p);
-	  printf("  => bad\n");
-	  num_failures++;}}
+	  printf("  => bad\n");}}
       
       else if (w == 2) {
 	int f = randint(S2);
 	int d = randint(S);
-	if (fields[f] != 0) continue;
+	int mf = mirror(mir, f);
+	if (fields[f] != 0
+	    || (mir && fields[mf] != 0))
+	  continue;
+
 	printf("black at %i,%i\n", field_col(f), field_row(f));
 
 	picosat_push(p);
-	printf("picosat context: %i\n", picosat_context(p));
-
 	picosat_add_arg(p, black(f), 0);
+	picosat_add_arg(p, black(mf), 0);
 	fields[f] = 3;
+	if (mir) fields[mf] = 3;
 	assume_others_white(p, fields);
 	
 	int res = picosat_sat(p, -1);
@@ -593,21 +628,11 @@ main()
 	  if (!has_second_solution(p, fields)) {
 	    goto success;}
 
-	  picosat_pop(p);
-	  picosat_add_arg(p, black(f), 0);
-
 	} else {
 	  fields[f] = 0;
+	  if (mir) fields[mf] = 0;
 	  picosat_pop(p);
-	  printf("  => bad\n");
-	  num_failures++;}}
-
-      if (num_failures > 100) {
-	printf("\n\nresetting picosat after 100 failures\n");
-	num_failures = 0;
-	picosat_reset(p);
-	p = fill_new_instance(fields, digit);	
-      }
+	  printf("  => bad\n");}}
     }
 
   picosat_stats(p);
