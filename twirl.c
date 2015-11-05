@@ -262,6 +262,13 @@ encodeToCNF(PicoSAT*p) {
       picosat_add(p, hstr(f, len));
       picosat_add(p, 0); numcl++;
 
+      if (col > 0)
+	implies(hstr(f,len), xblack(same_row_but(f, col-1)));
+      if (c <= S-2)
+	implies(hstr(f,len), xblack(same_row_but(f, c+1)));
+      for (int s = 0; s < len; s++)
+	implies(hstr(f,len), white(same_row_but(f, col+s)));
+
       // hstr(f,len) => hstrd(f,len,0) | hstrd(f,len,1) ...
       picosat_add(p, -hstr(f, len));
       int largest_mind = S-len;
@@ -293,6 +300,14 @@ encodeToCNF(PicoSAT*p) {
       picosat_add(p, vstr(f, len));
       picosat_add(p, 0); numcl++;
 
+      if (row > 0)
+	implies(vstr(f,len), xblack(same_col_but(f, row-1)));
+      if (r <= S-2)
+	implies(vstr(f,len), xblack(same_col_but(f, r+1)));
+      for (int s = 0; s < len; s++)
+	implies(vstr(f,len), white(same_col_but(f, row+s)));
+
+      
       // and the vstr(f,len) def
       picosat_add(p, -vstr(f, len));
       int largest_mind = S-len;
