@@ -649,6 +649,7 @@ try_shrink(int *fields, int *digits)
 		droppables[num++] = f;
 	      }
 	    }
+	    picosat_reset(p);
 	  }
 	}
       printf("round %i: %i givens dropable\n", round, num);
@@ -656,9 +657,15 @@ try_shrink(int *fields, int *digits)
 	{
 	  int n = randint(num);
 	  int df = droppables[n];
-	  printf("  dropping %i,%i\n", field_col(df), field_row(df));
 	  fields[df] = 0;
 	  digits[df] = 0;
+	  printf("dropping %i,%i\n",
+		 field_col(df), field_row(df));
+
+	  PicoSAT *p = fill_new_instance(fields, digits, 0);
+	  assume_others_white(p, fields);
+	  assert(picosat_sat(p, -1) == PICOSAT_SATISFIABLE);
+	  showLinkToGame(p, fields, digits);
 	}
       else break;
       round++;
