@@ -802,9 +802,17 @@ main()
   try_shrink(fields, digit);
 
   picosat_reset(p);
-  p = fill_new_instance(field, digit, 0);
+  p = fill_new_instance(fields, digit, 0);
   assume_others_white(p, fields);
   int res = picosat_sat(p, -1);
+  assert(res == PICOSAT_SATISFIABLE);
+
+  if (has_second_solution(p, fields)) {
+    printf("oh, broke it in shrinking");
+    return 1;}
+
+  assume_others_white(p, fields);
+  res = picosat_sat(p, -1);
   assert(res == PICOSAT_SATISFIABLE);
 
   // determine_difficulty(p, fields, digit);
