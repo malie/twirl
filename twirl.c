@@ -451,6 +451,7 @@ check_every_single_digit(PicoSAT *pouter, int *fields, int *digit)
   int good = 1;
   PicoSAT *p = fill_new_instance(fields, digit);
 
+  int verbose_err = 5;
   for (int f = 0; f < S2; f++) {
     if (fields[f] == 0
 	&& picosat_deref(pouter, white(f)) == 1)
@@ -464,6 +465,8 @@ check_every_single_digit(PicoSAT *pouter, int *fields, int *digit)
 	  int d = find_digit(p, f);
 	  printf("### found a solution when %i,%i is not %i but %i\n",
 		 field_col(f), field_row(f), 1+digit, 1+d);
+	  if (verbose_err-- > 0)
+	    printResults(p, fields);
 	  good = 0;
 	} else {
 	  printf("good, %i,%i must be %i\n",
@@ -545,7 +548,7 @@ main()
     fields[i] = 0;
     digit[i] = -1;}
 
-  int num_black = S + randint(S/2) + 2;
+  int num_black = S + randint(S) + 2;
 
   int mir = 1;
 
@@ -555,7 +558,9 @@ main()
   for (int i = 0; i < 3000; i++)
     {
       printf("\n\n");
-      int w = num_black > 0 ? randint(3) : 0;
+      int w =
+	(num_black > 5) ? 1 + randint(2)
+	: (num_black > 0) ? randint(3) : 0;
       if (w == 0) {
 	int f = randint(S2);
 	int d = randint(S);
@@ -656,7 +661,6 @@ main()
 
  success:
   
-  picosat_stats(p);
   printf("\nfound a game!\n");
 
   int res = picosat_sat(p, -1);
@@ -667,6 +671,8 @@ main()
 	   "please run again.\n");
     return 1;
   }
+
+  picosat_stats(p);
 
   showLinkToGame(p, fields, digit);
   return 0;
