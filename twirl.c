@@ -474,7 +474,7 @@ has_second_solution(PicoSAT *p, int *fields) {
   assume_others_white(p, fields);
   int res;
   if (picosat_sat(p, -1) == PICOSAT_SATISFIABLE) {
-    printf("has second solution\n");
+    // printf("has second solution\n");
     if (0)
       for (int f = 0; f < S2; f++)
 	{
@@ -487,7 +487,7 @@ has_second_solution(PicoSAT *p, int *fields) {
     
     res = 1;}
   else {
-    printf("NO SECOND SOLUTION\n");
+    // printf("NO SECOND SOLUTION\n");
     res = 0;
   }
   picosat_pop(p);
