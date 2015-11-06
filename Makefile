@@ -1,5 +1,5 @@
 
-CFLAGS=-O3 -g -Ipicosat-960/
+CFLAGS=-O3 -g -Ipicosat-960/ -DTRACE
 
 twirl: twirl.o picosat-960/picosat.o
 	gcc -o $@ $^

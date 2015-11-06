@@ -755,7 +755,7 @@ main()
   int res = picosat_sat(p, -1);
   assert(res == PICOSAT_SATISFIABLE);
 
-  determine_difficulty(p, fields, digit);
+  // determine_difficulty(p, fields, digit);
 
   picosat_stats(p);
 
