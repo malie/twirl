@@ -663,6 +663,7 @@ main()
   
   printf("\nfound a game!\n");
 
+  assume_others_white(p, fields);
   int res = picosat_sat(p, -1);
   assert(res == PICOSAT_SATISFIABLE);
 
