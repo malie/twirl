@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <assert.h>
 #include <sys/time.h>
+#include <string.h>
 #include "picosat.h"
 
 #define S 9
@@ -60,6 +61,7 @@ int vstrd(int f, int l, int d) {
   assert(d >= 0 && d < S);
   return LS3OFFS+S4+f*S2+(l-2)*S+d;}
 
+#define LASTVAR (LS3OFFS+2*S4)
 
 
 
@@ -85,6 +87,74 @@ int same_row_but(int f, int col) {
   int row = f / S;
   return field(col, row);
 }
+
+////////////////////////////////////////
+
+void*
+memdup(void* mem, size_t s) {
+  void *res = malloc(s);
+  memcpy(res, mem, s);
+  return res;}
+
+////////////////////////////////////////
+
+struct clause {
+  int id;
+  // int desc;
+  int size;
+  int *lits;
+};
+
+#define MAXCLAUSELEN S+5
+int current_clause[MAXCLAUSELEN];
+int ccptr = 0;
+
+#define NUM_CLAUSES (S2*10+S3*60+2*S4)
+struct clause clauses[NUM_CLAUSES];
+int clausesptr = 0;
+
+void
+add_lit(int lit) {
+  if (lit) {
+    assert(ccptr < MAXCLAUSELEN);
+    current_clause[ccptr++] = lit;}
+  else {
+    assert(ccptr > 0);
+    struct clause *c = clauses + clausesptr;
+    c->id = clausesptr;
+    // c->desc =  234;
+    c->size = ccptr;
+    c->lits = memdup(current_clause, ccptr*sizeof(int));
+    ccptr = 0;
+    clausesptr++;
+    assert(clausesptr < NUM_CLAUSES);}}
+
+
+int
+firstMUSVar() {
+  return LASTVAR;}
+
+int
+lastMUSVar() {
+  return LASTVAR+clausesptr-1;}
+
+void
+feedClausesToPicosat(PicoSAT *p, int forMUS) {
+  for (int cl = 0; cl < clausesptr; cl++)
+    {
+      struct clause *c = clauses + cl;
+
+      if (forMUS)
+	picosat_add(p, LASTVAR + cl);
+      
+      for (int i = 0; i < c->size; i++) {
+	picosat_add(p, c->lits[i]);
+      }
+      picosat_add(p, 0);
+    }
+}
+
+////////////////////////////////////////
 
 
 
@@ -156,17 +226,22 @@ printResults(PicoSAT *p, int* fields) {
 
 
 void
-encodeToCNF(PicoSAT*p) {
-  int numcl = 0;
+encodeToCNF() {
 
-#define implies(a,b)      (numcl++, picosat_add_arg(p, -a, b, 0));
-#define implies_or(a,b,c) (numcl++, picosat_add_arg(p, -a, b, c, 0));
+#define clause2(a,b)				\
+  ({add_lit(a); add_lit(b); add_lit(0);})
+
+#define clause3(a,b,c)					\
+  ({add_lit(a); add_lit(b); add_lit(c); add_lit(0);})
+
+#define implies(a,b)  clause2(-a, b);
+#define implies_or(a,b,c) clause3(-a, b, c);
   
   int f, d, l, t, e, c, r;
   
   for (f = 0; f < S2; f++) {
 
-    picosat_add_arg(p, white(f), black(f), nblack(f), 0);
+    clause3(white(f), black(f), nblack(f));
     implies(white(f), -black(f));
     implies(white(f), -nblack(f));
     implies(nblack(f), -black(f));
@@ -205,33 +280,29 @@ encodeToCNF(PicoSAT*p) {
 	  implies(num(f, d), -num(t, d));
 
 	// only one digit at most in each cell
-	if (d != e) {
-	  // picosat_add_arg(p,
-	  //    -numfield(f), -num(f, d), -num(f, e), 0);
+	if (d != e)
 	  implies(num(f, d), -num(f, e));
-	}
       }
     }
     // numfield(f) => exists d . num(f,d)
-    picosat_add(p, -numfield(f));
+    add_lit(-numfield(f));
     for (d = 0; d < S; d++)
-      picosat_add(p, num(f, d));
-    picosat_add(p, 0); numcl++;
+      add_lit(num(f, d));
+    add_lit(0);
 
     // no single white fields
     int c = field_col(f);
     int r = field_row(f);
-    picosat_add(p, -white(f));
+    add_lit(-white(f));
     if (c >= 1)
-      picosat_add(p, -xblack(field(c-1, r)));
+      add_lit(-xblack(field(c-1, r)));
     if (c < S-1)
-      picosat_add(p, -xblack(field(c+1, r)));
+      add_lit(-xblack(field(c+1, r)));
     if (r >= 1)
-      picosat_add(p, -xblack(field(c, r-1)));
+      add_lit(-xblack(field(c, r-1)));
     if (r < S-1)
-      picosat_add(p, -xblack(field(c, r+1)));
-    picosat_add(p, 0); numcl++;
-    
+      add_lit(-xblack(field(c, r+1)));
+    add_lit(0);
   }
 
   
@@ -254,13 +325,13 @@ encodeToCNF(PicoSAT*p) {
       // c is the last column (inclusively)
       int len = c-col+1;
       if (col > 0)
-	picosat_add(p, -xblack(same_row_but(f, col-1)));
+	add_lit(-xblack(same_row_but(f, col-1)));
       if (c <= S-2)
-	picosat_add(p, -xblack(same_row_but(f, c+1)));
+	add_lit(-xblack(same_row_but(f, c+1)));
       for (int s = 0; s < len; s++)
-	picosat_add(p, -white(same_row_but(f, col+s)));
-      picosat_add(p, hstr(f, len));
-      picosat_add(p, 0); numcl++;
+	add_lit(-white(same_row_but(f, col+s)));
+      add_lit(hstr(f, len));
+      add_lit(0);
 
       if (col > 0)
 	implies(hstr(f,len), xblack(same_row_but(f, col-1)));
@@ -270,21 +341,21 @@ encodeToCNF(PicoSAT*p) {
 	implies(hstr(f,len), white(same_row_but(f, col+s)));
 
       // hstr(f,len) => hstrd(f,len,0) | hstrd(f,len,1) ...
-      picosat_add(p, -hstr(f, len));
+      add_lit(-hstr(f, len));
       int largest_mind = S-len;
       for (int mind = 0; mind <= largest_mind; mind++)
-	picosat_add(p, hstrd(f, len, mind));
-      picosat_add(p, 0); numcl++;
+	add_lit(hstrd(f, len, mind));
+      add_lit(0);
 
       // hstrd(f,len,d) => num(f,d) | num(f,d+1) ...
       // for all the num()'s in the straight
       for (int sc = col; sc <= c; sc++) {
 	int ff = same_row_but(f, sc);
 	for (int mind = 0; mind <= largest_mind; mind++) {
-	  picosat_add(p, -hstrd(f, len, mind));
+	  add_lit(-hstrd(f, len, mind));
 	  for (int dig = 0; dig < len; dig++)
-	    picosat_add(p, num(ff, mind+dig));
-	  picosat_add(p, 0); numcl++;
+	    add_lit(num(ff, mind+dig));
+	  add_lit(0);
 	}
       }
     }
@@ -292,13 +363,13 @@ encodeToCNF(PicoSAT*p) {
     for (r = row+1; r < S; r++) {
       int len = r-row+1;
       if (row > 0)
-	picosat_add(p, -xblack(same_col_but(f, row-1)));
+	add_lit(-xblack(same_col_but(f, row-1)));
       if (r <= S-2)
-	picosat_add(p, -xblack(same_col_but(f, r+1)));
+	add_lit(-xblack(same_col_but(f, r+1)));
       for (int s = 0; s < len; s++)
-	picosat_add(p, -white(same_col_but(f, row+s)));
-      picosat_add(p, vstr(f, len));
-      picosat_add(p, 0); numcl++;
+	add_lit(-white(same_col_but(f, row+s)));
+      add_lit(vstr(f, len));
+      add_lit(0);
 
       if (row > 0)
 	implies(vstr(f,len), xblack(same_col_but(f, row-1)));
@@ -309,26 +380,26 @@ encodeToCNF(PicoSAT*p) {
 
       
       // and the vstr(f,len) def
-      picosat_add(p, -vstr(f, len));
+      add_lit(-vstr(f, len));
       int largest_mind = S-len;
       for (int mind = 0; mind <= largest_mind; mind++)
-	picosat_add(p, vstrd(f, len, mind));
-      picosat_add(p, 0); numcl++;
+	add_lit(vstrd(f, len, mind));
+      add_lit(0);
 
       // vstrd(f,len,d) => num(f,d) | num(f,d+1) ...
       // for all the num()'s in the straight
       for (int sc = row; sc <= r; sc++) {
 	int ff = same_col_but(f, sc);
 	for (int mind = 0; mind <= largest_mind; mind++) {
-	  picosat_add(p, -vstrd(f, len, mind));
+	  add_lit(-vstrd(f, len, mind));
 	  for (int dig = 0; dig < len; dig++)
-	    picosat_add(p, num(ff, mind+dig));
-	  picosat_add(p, 0); numcl++;
+	    add_lit(num(ff, mind+dig));
+	  add_lit(0);
 	}
       }
     }
   }
-  printf("encoded into %i clauses\n", numcl);
+  printf("encoded into %i clauses\n", clausesptr);
 }
 
 unsigned long long seed = 9111111111111239ULL;
@@ -423,10 +494,11 @@ has_second_solution(PicoSAT *p, int *fields) {
   return res;}
 
 PicoSAT*
-fill_new_instance(int *fields, int *digit)
+fill_new_instance(int *fields, int *digit, int forMUS)
 {
   PicoSAT *p = picosat_init();
-  encodeToCNF(p);
+  feedClausesToPicosat(p, forMUS);
+  
   for (int f = 0; f < S2; f++) {
     if (fields[f] == 1) {
       picosat_add_arg(p, white(f), 0);
@@ -441,15 +513,17 @@ fill_new_instance(int *fields, int *digit)
   return p;
 }
 
-// This function is called when it's sure that no second solution
-// exists. One can imply that no single digit can be assigned
-// another value. Yet, some constellations are generated that
-// are ambiguous in (very few) digits. Let's check.
-int
-check_every_single_digit(PicoSAT *pouter, int *fields, int *digit)
+
+
+// This is exploring how determining a puzzles difficulty could work.
+void
+determine_difficulty(PicoSAT *pouter, int *fields, int *digit)
 {
-  int good = 1;
-  PicoSAT *p = fill_new_instance(fields, digit);
+  int forMUS = 1;
+  PicoSAT *p = fill_new_instance(fields, digit, forMUS);
+
+  printf("firstMUSVAR() -> %i   lastMUSVAR() -> %i\n",
+	 firstMUSVar(), lastMUSVar());
 
   int verbose_err = 5;
   for (int f = 0; f < S2; f++) {
@@ -461,22 +535,34 @@ check_every_single_digit(PicoSAT *pouter, int *fields, int *digit)
 	
 	assume_others_white(p, fields);
 	picosat_assume(p, -num(f, digit));
-	if (picosat_sat(p, -1) == PICOSAT_SATISFIABLE) {
-	  int d = find_digit(p, f);
-	  printf("### found a solution when %i,%i is not %i but %i\n",
-		 field_col(f), field_row(f), 1+digit, 1+d);
-	  if (verbose_err-- > 0)
-	    printResults(p, fields);
-	  good = 0;
-	} else {
-	  printf("good, %i,%i must be %i\n",
-		 field_col(f), field_row(f), 1+digit);
+
+	int lastmv = lastMUSVar();
+	for (int a = firstMUSVar(); a < lastmv; a++) {
+	  picosat_assume(p, -a);}
+
+	printf("start sat\n");
+	int res = picosat_sat(p, -1);
+	printf("end sat\n");
+	assert(res == PICOSAT_UNSATISFIABLE);
+	
+	printf("how difficult is it to see %i,%i must be %i\n",
+	       field_col(f), field_row(f), 1+digit);
+	int* failed =
+	  picosat_mus_assumptions(p, (void*)0, (void*)0, 0);
+	printf("failed assuptions:\n  ");
+	int *p = failed;
+	int i = 0;
+	while (*p) {
+	  if ((i++%10) == 9)
+	    printf("\n  ");
+	  printf("%i ", *p);
+	  p++;
 	}
+	printf("\n");
+	
       }
   }
-
   picosat_reset(p);
-  return good;
 }
 
 void
@@ -537,9 +623,11 @@ showLinkToGame(PicoSAT *p, int *fields, int *digit) {
 int
 main()
 {
-  PicoSAT *p = picosat_init();
-  encodeToCNF(p);
+  encodeToCNF();
 
+  PicoSAT *p = picosat_init();
+  feedClausesToPicosat(p, 0);
+  
   init_seed();
 
   int fields[S2];
@@ -667,11 +755,7 @@ main()
   int res = picosat_sat(p, -1);
   assert(res == PICOSAT_SATISFIABLE);
 
-  if (!check_every_single_digit(p, fields, digit)) {
-    printf("A game was found but it has multiple solutions...\n"
-	   "please run again.\n");
-    return 1;
-  }
+  determine_difficulty(p, fields, digit);
 
   picosat_stats(p);
 
