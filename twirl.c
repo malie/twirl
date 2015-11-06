@@ -468,8 +468,8 @@ has_second_solution(PicoSAT *p, int *fields) {
   picosat_push(p);
   picosat_add_lits(p, nsolution);
 
-  printf("added a clause with %i literals for next solution...\n",
-	 nadded);
+  // printf("added a clause with %i literals for next solution...\n",
+  //   nadded);
   
   assume_others_white(p, fields);
   int res;
@@ -547,10 +547,10 @@ determine_difficulty(PicoSAT *pouter, int *fields, int *digit)
 	
 	printf("how difficult is it to see %i,%i must be %i\n",
 	       field_col(f), field_row(f), 1+digit);
-	int* failed =
+	const int* failed =
 	  picosat_mus_assumptions(p, (void*)0, (void*)0, 0);
 	printf("failed assuptions:\n  ");
-	int *p = failed;
+	const int *p = failed;
 	int i = 0;
 	while (*p) {
 	  if ((i++%10) == 9)
@@ -618,6 +618,53 @@ showLinkToGame(PicoSAT *p, int *fields, int *digit) {
 	 nb,
 	 ng);
 }
+
+
+void
+try_shrink(int *fields, int *digits)
+{
+  int round = 1;
+  while (1)
+    {
+      int droppables[S2];
+      int num = 0;
+      for (int f = 0; f < S2; f++)
+	{
+	  if (fields[f] == 1) {
+	    int xfields[S2], xdigits[S2];
+	    for (int ff = 0; ff < S2; ff++) {
+	      xfields[ff] = 0;
+	      xdigits[ff] = -1;
+	      if (fields[ff] && ff != f)
+		{
+		  xfields[ff] = fields[ff];
+		  xdigits[ff] = digits[ff];}}
+	    
+	    PicoSAT *p = fill_new_instance(xfields, xdigits, 0);
+	    assume_others_white(p, xfields);
+	    if (picosat_sat(p, -1) == PICOSAT_SATISFIABLE) {
+	      if (!has_second_solution(p, xfields)) {
+		printf("can drop %i,%i from givens\n",
+		       field_col(f), field_row(f));
+		droppables[num++] = f;
+	      }
+	    }
+	  }
+	}
+      printf("round %i: %i givens dropable\n", round, num);
+      if (num > 0)
+	{
+	  int n = randint(num);
+	  int df = droppables[n];
+	  printf("  dropping %i,%i\n", field_col(df), field_row(df));
+	  fields[df] = 0;
+	  digits[df] = 0;
+	}
+      else break;
+      round++;
+    }
+}
+
 
 
 int
@@ -749,15 +796,19 @@ main()
 
  success:
   
+  picosat_stats(p);
   printf("\nfound a game!\n");
 
+  try_shrink(fields, digit);
+
+  picosat_reset(p);
+  p = fill_new_instance(field, digit, 0);
   assume_others_white(p, fields);
   int res = picosat_sat(p, -1);
   assert(res == PICOSAT_SATISFIABLE);
 
   // determine_difficulty(p, fields, digit);
 
-  picosat_stats(p);
 
   showLinkToGame(p, fields, digit);
   return 0;
