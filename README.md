@@ -1,2 +1,4 @@
 # twirl
-A STR8TS solver
+A Straights generator (a str8ts clone)
+
+https://twitter.com/klstrasse
