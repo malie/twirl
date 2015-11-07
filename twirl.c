@@ -4,6 +4,8 @@
 #include <string.h>
 #include "picosat.h"
 
+int instance;
+
 #define S 9
 #define S2 (S*S)
 #define S3 (S*S*S)
@@ -566,7 +568,7 @@ determine_difficulty(PicoSAT *pouter, int *fields, int *digit)
 }
 
 void
-showLinkToGame(PicoSAT *p, int *fields, int *digit) {
+showLinkToGame(PicoSAT *p, int *fields, int *digit, char* prefix) {
   char url64codes[] =
     "0123456789"
     "_-"
@@ -610,9 +612,11 @@ showLinkToGame(PicoSAT *p, int *fields, int *digit) {
 
   
   encodedGame[fillptr++] = 0;
+  if (!prefix) prefix = "";
   printf("\n\nURL to play this game:\n"
-	 "http://malie.github.io/undiluted/play/str8ts.html"
+	 "%shttp://malie.github.io/undiluted/play/straights.html"
 	 "?p=%c%s&nb=%i&ng=%i\n\n",
+	 prefix,
 	 url64codes[S],
 	 encodedGame,
 	 nb,
@@ -620,14 +624,20 @@ showLinkToGame(PicoSAT *p, int *fields, int *digit) {
 }
 
 
+// shrink strategy: 1: random, 2: max d., 3: min difficulty
 void
-try_shrink(int *fields, int *digits)
+try_shrink(int *fields, int *digits, int strategy)
 {
   int round = 1;
   while (1)
     {
       int droppables[S2];
+      int dvisits[S2];
       int num = 0;
+      int maxf = -1;
+      int max_visits = -1;
+      int minf = -1;
+      int min_visits = 1000000000;
       for (int f = 0; f < S2; f++)
 	{
 	  if (fields[f] == 1) {
@@ -643,13 +653,27 @@ try_shrink(int *fields, int *digits)
 	    PicoSAT *p = fill_new_instance(xfields, xdigits, 0);
 	    assume_others_white(p, xfields);
 	    if (picosat_sat(p, -1) == PICOSAT_SATISFIABLE) {
+	      int num_visits = picosat_visits(p);
+	      int num_propagations = picosat_propagations(p);
 	      if (!has_second_solution(p, xfields)) {
 		printf("can drop %i,%i from givens "
 		       "(vis: %i, prop:%i)\n",
 		       field_col(f), field_row(f),
-		       picosat_visits(p),
-		       picosat_propagations(p));
-		droppables[num++] = f;
+		       num_visits,
+		       num_propagations);
+		if (num_visits > max_visits) {
+		  max_visits = num_visits;
+		  maxf = f;
+		  printf("new max visits is %i\n", max_visits);
+		}
+		if (num_visits < min_visits) {
+		  min_visits = num_visits;
+		  minf = f;
+		  printf("new min visits is %i\n", max_visits);
+		}
+		droppables[num] = f;
+		dvisits[num] = num_visits;
+		num++;
 	      }
 	    }
 	    picosat_reset(p);
@@ -658,8 +682,17 @@ try_shrink(int *fields, int *digits)
       printf("round %i: %i givens dropable\n", round, num);
       if (num > 0)
 	{
-	  int n = randint(num);
-	  int df = droppables[n];
+	  int df, visits;
+	  if (strategy == 1) {
+	    int n = randint(num);
+	    df = droppables[n];
+	    visits = dvisits[n];}
+	  else if (strategy == 2) {
+	    df = maxf;
+	    visits = max_visits;}
+	  else if (strategy == 3) {
+	    df = minf;
+	    visits = min_visits;}
 	  fields[df] = 0;
 	  digits[df] = 0;
 	  printf("dropping %i,%i\n",
@@ -668,7 +701,11 @@ try_shrink(int *fields, int *digits)
 	  PicoSAT *p = fill_new_instance(fields, digits, 0);
 	  assume_others_white(p, fields);
 	  assert(picosat_sat(p, -1) == PICOSAT_SATISFIABLE);
-	  showLinkToGame(p, fields, digits);
+
+	  char buf[80];
+	  sprintf(buf, "%i %i ", visits, instance);
+	  
+	  showLinkToGame(p, fields, digits, buf);
 	}
       else break;
       round++;
@@ -676,10 +713,14 @@ try_shrink(int *fields, int *digits)
 }
 
 
-
 int
 main()
 {
+  struct timeval t;
+  gettimeofday(&t, NULL);
+  instance = t.tv_sec % 10000;
+  printf("instance: %i\n", instance);
+  
   encodeToCNF();
 
   PicoSAT *p = picosat_init();
@@ -809,7 +850,9 @@ main()
   picosat_stats(p);
   printf("\nfound a game!\n");
 
-  try_shrink(fields, digit);
+  int shrink_strategy = 1+randint(3);
+  printf("using shrink strategy %i\n", shrink_strategy);
+  try_shrink(fields, digit, shrink_strategy);
 
   picosat_reset(p);
   p = fill_new_instance(fields, digit, 0);
@@ -827,7 +870,7 @@ main()
 
   // determine_difficulty(p, fields, digit);
 
-
-  showLinkToGame(p, fields, digit);
+  // try_shrink does the url printing now...
+  // showLinkToGame(p, fields, digit, NULL);
   return 0;
 }
