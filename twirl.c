@@ -644,8 +644,11 @@ try_shrink(int *fields, int *digits)
 	    assume_others_white(p, xfields);
 	    if (picosat_sat(p, -1) == PICOSAT_SATISFIABLE) {
 	      if (!has_second_solution(p, xfields)) {
-		printf("can drop %i,%i from givens\n",
-		       field_col(f), field_row(f));
+		printf("can drop %i,%i from givens "
+		       "(vis: %i, prop:%i)\n",
+		       field_col(f), field_row(f),
+		       picosat_visits(p),
+		       picosat_propagations(p));
 		droppables[num++] = f;
 	      }
 	    }
