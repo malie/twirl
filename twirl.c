@@ -568,7 +568,9 @@ determine_difficulty(PicoSAT *pouter, int *fields, int *digit)
 }
 
 void
-showLinkToGame(PicoSAT *p, int *fields, int *digit, char* prefix) {
+showLinkToGame(PicoSAT *p, int *fields, int *digit,
+	       char* prefix, int num_visits)
+{
   char url64codes[] =
     "0123456789"
     "_-"
@@ -613,12 +615,19 @@ showLinkToGame(PicoSAT *p, int *fields, int *digit, char* prefix) {
   
   encodedGame[fillptr++] = 0;
   if (!prefix) prefix = "";
+
+  char num_visits_str[40];
+  if (num_visits > 0)
+    sprintf(num_visits_str, "&nv=%i", num_visits);
+  else num_visits_str[0] = 0;
+  
   printf("\n\nURL to play this game:\n"
 	 "%shttp://malie.github.io/undiluted/play/straights.html"
-	 "?p=%c%s&nb=%i&ng=%i\n\n",
+	 "?p=%c%s%s&nb=%i&ng=%i\n\n",
 	 prefix,
 	 url64codes[S],
 	 encodedGame,
+	 num_visits_str,
 	 nb,
 	 ng);
 }
@@ -705,7 +714,7 @@ try_shrink(int *fields, int *digits, int strategy)
 	  char buf[80];
 	  sprintf(buf, "%i %i ", visits, instance);
 	  
-	  showLinkToGame(p, fields, digits, buf);
+	  showLinkToGame(p, fields, digits, buf, visits);
 	}
       else break;
       round++;
@@ -871,6 +880,6 @@ main()
   // determine_difficulty(p, fields, digit);
 
   // try_shrink does the url printing now...
-  // showLinkToGame(p, fields, digit, NULL);
+  // showLinkToGame(p, fields, digit, NULL, 0);
   return 0;
 }
